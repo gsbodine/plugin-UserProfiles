@@ -8,12 +8,18 @@ class UserProfiles_ProfilesController extends Omeka_Controller_AbstractActionCon
         $this->_browseRecordsPerPage = get_option('per_page_admin');
     }
 
+    protected function _redirectAfterDelete($record)
+    {
+        $this->_helper->redirector('user');
+    }    
+    
     public function editAction()
     {
+        $this->view->addHelperPath(USER_PROFILES_DIR . '/helpers', 'UserProfiles_View_Helper_');
         $allTypes = $this->_helper->db->getTable('UserProfilesType')->findAll();
         $typeId = $this->getParam('type');
         
-        //if no typeId, as happens on the public side, give the first profile typeId
+        //if no typeId
         if(!$typeId) {
             $typeId = $allTypes['0']->id;
         }
@@ -27,7 +33,6 @@ class UserProfiles_ProfilesController extends Omeka_Controller_AbstractActionCon
             $userId = $user->id;            
         }      
         $this->view->user = $user; 
-        
 
         $userProfile = $this->_helper->db->getTable()->findByUserIdAndTypeId($userId, $typeId);
         if(!$userProfile) {
@@ -37,53 +42,49 @@ class UserProfiles_ProfilesController extends Omeka_Controller_AbstractActionCon
             $userProfile->setRelationData(array('subject_id'=>$userId));
             
         }
+        
+        if(!is_allowed($userProfile, 'edit')) {
+            throw new Omeka_Controller_Exception_403; 
+        }
         if($this->_getParam('submit') ) {
             $userProfile->setPostData($_POST);
-            $userProfile->save();
-            fire_plugin_hook('user_profiles_save', array('post'=>$_POST, 'profile'=>$userProfile, 'type'=>$profileType));
-            $this->redirect('user-profiles/profiles/user/id/'. $userId);
+            if($userProfile->save(false)) {
+                fire_plugin_hook('user_profiles_save', array('post'=>$_POST, 'profile'=>$userProfile, 'type'=>$profileType));
+                $this->redirect('user-profiles/profiles/user/id/'. $userId);
+            } else {
+                $this->_helper->flashMessenger($userProfile->getErrors());
+            }
+            
         }
         $this->view->userprofilesprofile = $userProfile;
         $this->view->userprofilestype = $profileType;
-        $this->view->profile_types = $allTypes;
-    }
-
-    public function deleteAction()
-    {
-        if (!$this->getRequest()->isPost()) {
-            $this->_forward('method-not-allowed', 'error', 'default');
-            return;
-        }
-
-        $record = $this->findById();
-
-        $form = $this->_getDeleteForm();
-
-        if ($form->isValid($_POST)) {
-            $record->delete();
-        } else {
-            $this->_forward('error');
-            return;
-        }
-
-        $successMessage = $this->_getDeleteSuccessMessage($record);
-        if ($successMessage != '') {
-            $this->flashSuccess($successMessage);
-        }
-        $user = current_user();
-        $this->redirect('user-profiles/profiles/edit/id/' . $user->id);
-        //$this->redirect->goto('edit/id/' . $user->id );
+        $this->view->profile_types = apply_filters('user_profiles_type', $allTypes);
     }
 
     public function userAction()
     {
+        $allTypes = $this->_helper->db->getTable('UserProfilesType')->findAll();
         $userId = $this->_getParam('id');
-        if(!$userId) {
-            $user = current_user();
-            $userId = $user->id;
+        
+        $typeId = $this->getParam('type');
+        
+        //if no typeId, as happens on the public side, give the first profile typeId
+        if(!$typeId) {
+            $typeId = $allTypes['0']->id;
         }
-        $userProfiles = $this->_helper->db->getTable()->findByUserId($userId, true);
-        $this->view->profiles = $userProfiles;
+        $profileType = $this->_helper->db->getTable('UserProfilesType')->find($typeId);
+                
+        if($userId) {
+            $user = $this->_helper->db->getTable('User')->find($userId);
+        } else {
+            $user = current_user();
+            $userId = $user->id;            
+        }
+        $userProfile = $this->_helper->db->getTable()->findByUserIdAndTypeId($userId, $typeId);
+        $this->view->user = $user;
+        $this->view->userprofilesprofile = $userProfile;
+        $this->view->userprofilestype = $profileType;
+        $this->view->profile_types = apply_filters('user_profiles_type', $allTypes);     
     }
     
     public function elementFormAction()

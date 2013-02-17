@@ -1,12 +1,13 @@
 <?php
 $head = array('title'=>'User Profiles', 'bodyclass'=>'');
+queue_css_file('user-profiles');
 echo head($head);
 
 ?>
 <?php echo flash(); ?>
 
 <?php if(is_allowed('UserProfiles_Type', 'add')): ?>
-<p id="add-type" class="add-button"><a class="add" href="<?php echo html_escape(url('user-profiles/types/add')); ?>">Add a Profile Type</a></p>
+<p id="add-type" class="add-button"><a class="add green button" href="<?php echo html_escape(url('user-profiles/types/add')); ?>">Add a Profile Type</a></p>
 <?php endif; ?>
 <div id="primary">
 
@@ -16,7 +17,7 @@ echo head($head);
 <th>Profile Type</th>
 <th>Description</th>
 <th>Elements</th>
-<th>Edit My Profile</th>
+<th>My Profile</th>
 </tr>
 </thead>
     <tbody>
@@ -32,12 +33,18 @@ echo head($head);
     		<?php endif; ?>
     	</td>
     	<td><?php echo $type->description; ?></td>
-    	<td><ul>
+    	<td><ul id="user-profiles-element-list">
     	<?php foreach($type->Elements as $element): ?>
-    	<li><?php echo $element->name; ?></li>
+    	<li><?php echo $element->name; ?>
+        	<?php if($element->type) :?>
+        	(<?php echo $element->type; ?>)
+        	<?php else: ?>
+        	(text)
+        	<?php endif; ?>
+    	</li>
     	<?php endforeach; ?>
     	</ul></td>
-    	<td><a href="user-profiles/profiles/edit/id/<?php echo current_user()->id . '?type=' . $type->id; ?>">Edit</a></td>
+    	<td><a href="<?php echo url('user-profiles/profiles/user/id/' . current_user()->id . '?type=' . $type->id); ?>">View</a> | <a href="<?php echo url('user-profiles/profiles/edit/id/' . current_user()->id . '?type=' . $type->id); ?>">Edit</a></td>
     </tr>
     <?php endforeach; ?>
     </tbody>

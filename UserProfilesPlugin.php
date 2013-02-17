@@ -36,7 +36,7 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
                 `owner_id` int(10) unsigned NOT NULL ,
                 `added` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
                 `modified` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
-    			`values` text  ,
+                `public` tinyint(1) NOT NULL,
                 PRIMARY KEY (`id`)
             ) ENGINE=MyISAM DEFAULT CHARSET=utf8;";
         $db->query($sql);
@@ -46,51 +46,71 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
                 `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
                 `label` text,
                 `description` text,
-    			`fields` text ,
+    			`element_set_id` int(10) unsigned NOT NULL,
+    			`required_element_ids` text NOT NULL,
+                `required_multielement_ids` text NOT NULL,
+                `public` tinyint(1) NOT NULL,
                 PRIMARY KEY (`id`)
             ) ENGINE=MyISAM DEFAULT CHARSET=utf8;";
         $db->query($sql);
         
         $sql = "
-            CREATE TABLE IF NOT EXISTS `$db->UserProfilesTypeElement` (
+            CREATE TABLE IF NOT EXISTS `$db->UserProfilesMultiElement` (
               `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-              `profile_type_id` int(10) unsigned NOT NULL,
-              `element_id` int(10) unsigned NOT NULL,
-              `order` int(10) unsigned DEFAULT NULL,
-              PRIMARY KEY (`id`),
-              UNIQUE KEY `profile_type_id_element_id` (`profile_type_id`,`element_id`),
-              KEY `profile_type_id` (`item_type_id`),
-              KEY `element_id` (`element_id`)
-            ) ENGINE=MyISAM DEFAULT CHARSET=utf8;        
+              `name` text COLLATE utf8_unicode_ci NOT NULL,
+              `description` text COLLATE utf8_unicode_ci NOT NULL,
+              `type` enum('radio','select','multiselect','checkbox') COLLATE utf8_unicode_ci NOT NULL,
+              `options` text COLLATE utf8_unicode_ci NOT NULL,
+              `element_set_id` int(10) unsigned NOT NULL,
+              `order` int(11) DEFAULT NULL,
+              `comment` text COLLATE utf8_unicode_ci,
+              PRIMARY KEY (`id`)
+            ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='A parallel to Elements for checkboxes, radio, selects ' ;      
+
         ";
         
         $db->query($sql);
 
         $sql = "
-            INSERT IGNORE INTO `$db->ElementSet` (
-            `id` ,
-            `record_type` ,
-            `name` ,
-            `description`
-            )
-            VALUES (
-            NULL , 'UserProfilesType', 'User Profiles Elements', 'Elements to use with User Profiles'
-            );        
+            CREATE TABLE IF NOT EXISTS `$db->UserProfilesMultiValue` (
+              `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+              `profile_type_id` int(10) unsigned NOT NULL,
+              `profile_id` int(10) unsigned NOT NULL,
+              `values` text COLLATE utf8_unicode_ci NOT NULL,
+              `multi_id` int(10) unsigned NOT NULL,
+              PRIMARY KEY (`id`)
+            ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci  ;            
+        
         
         ";
         
         $db->query($sql);
-        
+  
+        set_option('user_profiles_required_elements', serialize(array()));
+        set_option('user_profiles_required_multielements', serialize(array()));
     }
 
     public function hookUninstall()
     {
         $db = get_db();
+        //Delete all elements, elementsets, and elementtexts UP is using
+        $types = $db->getTable('UserProfilesType')->findAll();
+        debug(count($types));
+        foreach($types as $type) {
+            $type->getElementSet()->delete();
+        }
+        
         $sql = "DROP TABLE IF EXISTS `$db->UserProfilesProfile` ";
         $db->query($sql);
 
         $sql = "DROP TABLE IF EXISTS `$db->UserProfilesType` ";
         $db->query($sql);
+        
+        $sql = "DROP TABLE IF EXISTS `$db->UserProfilesMultiValue` ";
+        $db->query($sql);
+
+        $sql = "DROP TABLE IF EXISTS `$db->UserProfilesMultiElement` ";
+        $db->query($sql);        
     }
 
     public function filterAdminNavigationMain($tabs)
@@ -102,7 +122,12 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
     public function filterGuestUserLinks($links)
     {
         $user = current_user();
-        $links['UserProfiles'] = array('label'=>'My Profiles', 'uri'=>url("/user-profiles/profiles/user/id/{$user->id}"));
+        $firstProfileTypes = $this->_db->getTable('UserProfilesType')->findBy(array(), 1);
+        if(!empty($firstProfileTypes)) {
+            $type = $firstProfileTypes[0];
+            $links['UserProfiles'] = array('label'=>'My Profiles', 'uri'=>url("/user-profiles/profiles/user/id/{$user->id}?type={$type->id}"));
+                        
+        }
         return $links;
     }
     
@@ -111,17 +136,28 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
         $acl = $args['acl'];
         $acl->addResource('UserProfiles_Type');
         $acl->addResource('UserProfiles_Profile');
+                
+        //null as 1st param in allow includes not logged in, so manage roles here
+        $roles = array('super', 'admin', 'contributor', 'researcher');
+        if(plugin_is_active('GuestUser')) {
+            $roles[] = 'guest';
+        }
         
-        $roles = array( 'researcher', 'contributor', 'admin', 'super');
-        $acl->allow(null, 'UserProfiles_Profile', array('editSelf', 'deleteSelf', 'add', 'user', 'delete-confirm'));
+        $acl->allow(null,
+                'UserProfiles_Profile',
+                array('edit', 'delete'),
+                new Omeka_Acl_Assert_Ownership);
+                
+        $acl->allow(null, 'UserProfiles_Profile', array('user'));
+        $acl->allow($roles, 'UserProfiles_Profile', array('add', 'editSelf', 'delete-confirm', 'showSelfNotPublic', 'deleteSelf'));
 
-        $acl->allow(null, 
-                    'UserProfiles_Profile', 
-                    array('edit', 'delete'),         
-                    new Omeka_Acl_Assert_Ownership);
+        $acl->allow(array('admin', 'super', 'researcher'), 'UserProfiles_Profile', array('showNotPublic'));
+        $acl->allow(array('admin', 'super'), 'UserProfiles_Profile', array('deleteAll'));
         
         $acl->deny(null, 'UserProfiles_Type');
-        $acl->allow('super', 'UserProfiles_Type');
-        $acl->allow('admin', 'UserProfiles_Type');
+        $acl->allow(array('super', 'admin'), 'UserProfiles_Type');
+        //let all logged in people see the types available, but hide non-public ones from searches
+        //since public/private is managed by Omeka_Db_Select_PublicPermission, this keeps them out of the navigation
+        $acl->allow($roles, 'UserProfiles_Type', array('showNotPublic'));
     }
 }

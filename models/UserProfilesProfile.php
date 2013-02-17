@@ -1,14 +1,13 @@
 <?php
 require_once(PLUGIN_DIR . '/RecordRelations/models/RelatableRecord.php');
-//require_once(PLUGIN_DIR . '/UserProfiles/models/Mixin/UserProfileElement.php');
 class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_Interface {
-//class UserProfilesProfile extends Omeka_Record_AbstractRecord {
 
     public $id;
     public $type_id;
     public $owner_id;
     public $added;
     public $modified;
+    public $public;
 
     protected $namespace = SIOC;
     protected $subject_record_type = 'User';
@@ -104,6 +103,7 @@ class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_I
     {
         parent::afterSave($args);
         $this->saveElementTexts();       
+        $this->saveMultiElementValues();
     }
     
     /**
@@ -451,7 +451,7 @@ class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_I
     
     /**
      * The application flow is thus:
-     *
+     *  0) Validate required elements
      *  1) Build ElementText objects from the POST.
      *  2) Validate the ElementText objects and assign error messages if
      *     necessary.
@@ -463,6 +463,7 @@ class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_I
      */
     public function beforeSaveElements($post)
     {
+        $this->_validateRequiredElements($post);
         $this->_getElementTextsToSaveFromPost($post);
         $this->_validateElementTexts();
     }
@@ -573,6 +574,36 @@ class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_I
         }
     }
     
+    private function _validateRequiredElements($post)
+    {
+        $type = $this->getProfileType();
+        $elementPost = $post['Elements'];
+        $multiElementPost = $post['MultiElements'];
+        foreach ($elementPost as $elementId => $texts) {
+            // Pull this from the list of prior retrieved data instead of a new SQL query each time.
+            $element = $this->getElementById($elementId);
+        
+            // Add this to the stack of elements that are stored on the form.
+            $this->_elementsOnForm[$element->id] = $element;
+        
+            foreach ($texts as $key => $textAttributes) {
+                $elementText = $this->getTextStringFromFormPost($textAttributes, $element);
+                if(in_array($elementId, $type->required_element_ids) && empty($elementText)) {
+                    $errorMessage = __('The "%s" field is required.', $element->name);
+                    $this->addError($element->name, $errorMessage);                
+                }
+            }
+        }
+        $postedMultiElements = array_keys($multiElementPost);
+        foreach($type->required_multielement_ids as $requiredId) {
+            if(!in_array($requiredId, $postedMultiElements)) {
+                $multiEl = $this->getTable('UserProfilesMultiElement')->find($requiredId);
+                $errorMessage = __('The "%s" field is required.', $multiEl->name);
+                $this->addError($multiEl->name, $errorMessage);
+            }
+        }
+    }
+    
     /**
      * Return whether the given ElementText record is valid.
      *
@@ -614,7 +645,6 @@ class UserProfilesProfile extends RelatableRecord implements Zend_Acl_Resource_I
                         'element' => $elementRecord,
                 )
         );
-    
         return $isValid;
     }
     
@@ -735,4 +765,36 @@ SQL
         $url = "$base/user-profiles/profiles/$action/id/{$user->id}";
         return $url;
     }
+    
+    public function getValuesForMulti($element)
+    {
+        $valuesObject = $this->getTable('UserProfilesMultiValue')->findByMultiElement($element);
+        if($valuesObject) {
+            return $valuesObject->getValues();
+        } 
+        return array();
+        
+        
+    }
+    
+    public function getValueRecordForMulti($element)
+    {
+        return $this->getTable('UserProfilesMultiValue')->findByMultiElement($element);
+    }
+    
+    public function saveMultiElementValues()
+    {
+        foreach($_POST['MultiElements'] as $multiElementId=>$values) {
+            $multiElementValue = $this->getTable('UserProfilesMultiValue')->findByMultiElement($multiElementId);
+            if(!$multiElementValue) {
+                $multiElementValue = new UserProfilesMultiValue();
+                $multiElementValue->profile_id = $this->id;
+                $multiElementValue->profile_type_id = $this->type_id;
+                $multiElementValue->multi_id = $multiElementId;    
+            } 
+            $multiElementValue->setValues($values);
+            $multiElementValue->save();
+        }
+    }
+   
 }

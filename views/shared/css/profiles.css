@@ -1,8 +1,28 @@
-
-div.user-profiles-input label {
-	clear: both;	
+div.user-profiles-profile {
+	clear: both;
+	
 }
 
-div.user-profiles-profile-field {
-	clear: both;	
+div.element {
+	clear:both;
 }
+
+div.element-text {
+	margin-top: 0px;
+	
+}
+
+div.element-text > p {
+	margin-top: 0px;
+	
+}
+
+div#primary input.big, div#primary input.button, div#primary a.big, div#primary a.button {
+
+	margin: 10px auto;
+	width: 100% !important;
+	display: block;
+	text-align: center;
+	
+}
+
