@@ -8,12 +8,18 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
     protected $_hooks = array(
     	'install',
         'uninstall',
-        'define_acl'
+        'define_acl',
+        'config',
+        'config_form',
+        'admin_items_show_sidebar',
+        'public_items_show',
+        'admin_users_browse_each'
+            
         );
 
     protected $_filters = array( 
             'admin_navigation_main',
-
+            'search_record_types'
             );
 
     protected $_options = null;
@@ -95,7 +101,6 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
         $db = get_db();
         //Delete all elements, elementsets, and elementtexts UP is using
         $types = $db->getTable('UserProfilesType')->findAll();
-        debug(count($types));
         foreach($types as $type) {
             $type->getElementSet()->delete();
         }
@@ -129,6 +134,51 @@ class UserProfilesPlugin extends Omeka_Plugin_AbstractPlugin
                         
         }
         return $links;
+    }
+    
+    public function filterSearchRecordTypes($recordTypes)
+    {
+        $recordTypes['UserProfilesProfile'] = __('User Profiles');
+        return $recordTypes;
+    }
+    
+    public function hookPublicItemsShow($args) 
+    {
+        if(get_option('user_profiles_link_to_owner')) {
+            $view = $args['view'];
+            echo $view->partial('link_to_owner_profile.php', array('item' =>$args['item'], 'text'=>"Added by "));
+        }
+            
+    }
+    public function hookAdminUsersBrowseEach($args)
+    {
+        $user = $args['user'];
+        $view = $args['view'];
+        echo $view->partial('link_to_owner_profile.php', array('owner'=>$user,  'text'=>"Profile: "));
+    }
+    
+    public function hookAdminItemsShowSidebar($args) 
+    {
+        if(get_option('user_profiles_link_to_owner')) {
+            $view = $args['view'];
+            echo "<div class='panel'>";
+            echo "<h4>Owner Info</h4>";
+            echo $view->partial('link_to_owner_profile.php', array('item' =>$args['item']));
+            echo "</div>";
+        }
+        
+    }
+    public function hookConfig($args)
+    {
+       $post = $args['post'];
+       foreach($post as $option=>$value) {
+           set_option($option, $value);
+       }
+    }
+    
+    public function hookConfigForm($args)
+    {
+        include(USER_PROFILES_DIR . '/config_form.php');    
     }
     
     public function hookDefineAcl($args)
